@@ -1,4 +1,4 @@
-# Minecraft Server Gui [Vanilla Minecraft]
+# Minecraft Server GUI [Vanilla Minecraft]
 
 #### ToDo
 
