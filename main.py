@@ -1,12 +1,12 @@
 from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QPlainTextEdit, QLabel, QLineEdit, QGroupBox, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout
 from backup import make_backup
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QPlainTextEdit, QLabel, QAction, QMenu, QLineEdit
-import subprocess
-import threading
+import re
+import sys
 import time
 import psutil
-import sys
-import re
+import threading
+import subprocess
 
 MIN_RAM = '-Xms1G'
 MAX_RAM = '-Xmx3G'
@@ -31,7 +31,7 @@ class ServerProcess(QObject):
     def start(self):
         if self.process is None or self.process.poll() is not None:
             command = ['java', MIN_RAM, MAX_RAM, '-jar', SERVER_PATH, '-nogui']
-            print(f"Starting server with command: {' '.join(command)}")  # debug
+            print(f"Starting server with command: {' '.join(command)}") 
 
             try:
                 self.process = subprocess.Popen(
@@ -58,11 +58,14 @@ class ServerProcess(QObject):
             self.send_command("list")
             threading.Timer(10, self._schedule_list_check).start()
 
-    def stop_slow(self, restart=False):
+    def stop_slow(self, restart=False, reason=None):
         if self.process is not None and self.process.poll() is None:
             try:
                 for seconds in [30, 15, 10, 5, 4, 3, 2, 1]:
-                    msg = f"say Server {'startet neu' if restart else 'stoppt'} in {seconds} Sekunden"
+                    if reason:
+                        msg = f"say Server {reason} in {seconds} seconds"
+                    else:
+                        msg = f"say Server {'restarting' if restart else 'stopping'} in {seconds} seconds"
                     self.process.stdin.write(f'{msg}\n')
                     self.process.stdin.flush()
                     if seconds > 10:
@@ -99,7 +102,7 @@ class ServerProcess(QObject):
 
     def backup(self):
         self.output_signal.emit('Server-Backup started ..')
-        self.stop_slow()
+        self.stop_slow(reason='backup starts')
         try:
             msg = make_backup()
             self.output_signal.emit(msg)
@@ -140,7 +143,7 @@ class ServerProcess(QObject):
 
     def player_text(self, msg):
         clean_msg = remove_ansi_codes(msg)
-        if re.search(r']:\s<[^>]+>', clean_msg):  # Chatnachrichten
+        if re.search(r']:\s<[^>]+>', clean_msg):
             return True
         if "joined the game" in clean_msg or "left the game" in clean_msg:
             return True
@@ -181,13 +184,6 @@ class MainWindow(QMainWindow):
         self.net_io = ".."
         self.disk_io = ".."
 
-        # Buttons
-        self.stop_button = QPushButton('Stop Server', self)
-        self.start_button = QPushButton('Start Server', self)
-        self.restart_button = QPushButton('Restart Server', self)
-        self.shutdown_button = QPushButton('Shutdown Server', self)
-        self.backup_button = QPushButton('Backup', self)
-
         self.player_count_label = QLabel(self)
         self.pc_info_cpu = QLabel(self)
         self.pc_info_ram_used = QLabel(self)
@@ -195,23 +191,6 @@ class MainWindow(QMainWindow):
         self.pc_info_ram = QLabel(self)
         self.pc_info_byte_send = QLabel(self)
         self.pc_info_byte_received = QLabel(self)
-
-        # Font settings
-        self.command_input.setFont(self.font)
-        self.player_count_label.setFont(self.font)
-        self.pc_info_cpu.setFont(self.font)
-        self.pc_info_ram_used.setFont(self.font)
-        self.pc_info_ram_not_used.setFont(self.font)
-        self.pc_info_ram.setFont(self.font)
-        self.pc_info_byte_send.setFont(self.font)
-        self.pc_info_byte_received.setFont(self.font)
-        self.stop_button.setFont(self.font)
-        self.start_button.setFont(self.font)
-        self.restart_button.setFont(self.font)
-        self.shutdown_button.setFont(self.font)
-        self.backup_button.setFont(self.font)
-        self.log_text.setFont(self.font)
-        self.player_chat.setFont(self.font)
 
         # Minecraft Server
         self.server_process = ServerProcess()
@@ -253,79 +232,91 @@ class MainWindow(QMainWindow):
 
     def init_UI(self):
         self.setWindowTitle('Minecraft Server GUI')
-        self.setGeometry(100, 100, 1980, 1080)
+        self.resize(1200, 800)
 
-        # Logs
-        self.log_text.setReadOnly(True)
-        self.log_text.ensureCursorVisible()
-        self.log_text.setGeometry(10, 20, 830, 460)
+        font = self.font
+        font.setPointSize(12)
 
-        # Chat
-        self.player_chat.setReadOnly(True)
-        self.player_chat.ensureCursorVisible()
-        self.player_chat.setGeometry(850, 20, 780, 460)
+        central_widget = QWidget()
+        main_layout = QVBoxLayout(central_widget)
+        self.setCentralWidget(central_widget)
 
-        # Command input
-        self.command_input.setGeometry(10, 570, 830, 40)
+        self.player_count_label.setText("0 players online")
+        self.player_count_label.setFont(font)
+
+        player_group = QGroupBox("Players")
+        player_group.setFont(font)
+
+        player_layout = QVBoxLayout()
+        player_layout.addWidget(self.player_count_label)
+        player_group.setLayout(player_layout)
+        main_layout.addWidget(player_group)
+
+        self.log_text.setFont(font)
+        self.player_chat.setFont(font)
+        log_chat_layout = QHBoxLayout()
+        log_chat_layout.addWidget(self.log_text, 2)
+        log_chat_layout.addWidget(self.player_chat, 2)
+        main_layout.addLayout(log_chat_layout)
+
+        self.command_input.setFont(font)
         self.command_input.returnPressed.connect(self.send_command)
 
-        # Menu
-        log_menu = QMenu('Log', self.menuBar())
-        chat_menu = QMenu('Chat', self.menuBar())
-        self.menuBar().addMenu(log_menu)
-        self.menuBar().addMenu(chat_menu)
+        main_layout.addWidget(self.command_input)
 
-        clear_log = QAction('Clear', self)
-        clear_log.triggered.connect(self.log_text.clear)
+        button_layout = QHBoxLayout()
 
-        clear_chat = QAction('Clear', self)
-        clear_chat.triggered.connect(self.player_chat.clear)
+        self.start_button = QPushButton('Start Server')
+        self.stop_button = QPushButton('Stop Server (Slow)')
+        self.shutdown_button = QPushButton('Stop Server (Fast)')
+        self.restart_button = QPushButton('Restart Server')
+        self.backup_button = QPushButton('Backup')
 
-        log_menu.addAction(clear_log)
-        chat_menu.addAction(clear_chat)
+        for btn in [self.start_button, self.stop_button, self.shutdown_button, self.restart_button, self.backup_button]:
+            btn.setFont(font)
+            btn.setMinimumHeight(40)
+            button_layout.addWidget(btn)
 
-        init_x_button = 10
+        main_layout.addLayout(button_layout)
 
-        # Buttons
-        self.start_button.setGeometry(init_x_button + 210 * 0, 500, 200, 50)
         self.start_button.clicked.connect(self.start_server)
+        self.stop_button.clicked.connect(lambda: threading.Thread(target=self.server_process.stop_slow, daemon=True).start())
+        self.shutdown_button.clicked.connect(lambda: threading.Thread(target=self.server_process.stop_fast, daemon=True).start())
+        self.restart_button.clicked.connect(lambda: threading.Thread(target=self.server_process.restart, daemon=True).start())
+        self.backup_button.clicked.connect(lambda: threading.Thread(target=self.server_process.backup, daemon=True).start())
 
-        self.stop_button.setGeometry(init_x_button + 210 * 1, 500, 200, 50)
-        self.stop_button.clicked.connect(self.stop_server_slow)
+        pc_info_group = QGroupBox("PC Information")
+        pc_info_group.setFont(font)
 
-        self.shutdown_button.setGeometry(init_x_button + 210 * 2, 500, 200, 50)
-        self.shutdown_button.clicked.connect(self.stop_server_fast)
+        pc_info_layout = QGridLayout()
 
-        self.restart_button.setGeometry(init_x_button + 210 * 3, 500, 200, 50)
-        self.restart_button.clicked.connect(self.restart_server)
+        pc_info_layout.addWidget(QLabel("CPU Usage:"), 0, 0)
+        pc_info_layout.addWidget(self.pc_info_cpu, 0, 1)
 
-        self.backup_button.setGeometry(init_x_button + 210 * 4, 500, 200, 50)
-        self.backup_button.clicked.connect(self.backup_server)
+        pc_info_layout.addWidget(QLabel("Total RAM:"), 1, 0)
+        pc_info_layout.addWidget(self.pc_info_ram, 1, 1)
 
-        self.player_count_label.setGeometry(init_x_button + 210 * 5, 500, 300, 50)
-        self.player_count_label.setText("Players: -")
+        pc_info_layout.addWidget(QLabel("RAM Used:"), 2, 0)
+        pc_info_layout.addWidget(self.pc_info_ram_used, 2, 1)
 
-        # PC Info Labels
-        init_y_pc_info = 620
-        y_pc_info_jump = 30
+        pc_info_layout.addWidget(QLabel("RAM Free:"), 3, 0)
+        pc_info_layout.addWidget(self.pc_info_ram_not_used, 3, 1)
 
-        self.pc_info_cpu.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 0, 400, 50)
-        self.pc_info_cpu.setText(f"CPU Usage: {self.cpu_percent}%")
+        pc_info_layout.addWidget(QLabel("Network Sent:"), 4, 0)
+        pc_info_layout.addWidget(self.pc_info_byte_send, 4, 1)
 
-        self.pc_info_ram.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 1, 400, 50)
-        self.pc_info_ram.setText(f"RAM Usage: {self.memory}%")
+        pc_info_layout.addWidget(QLabel("Network Received:"), 5, 0)
+        pc_info_layout.addWidget(self.pc_info_byte_received, 5, 1)
 
-        self.pc_info_ram_used.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 2, 400, 50)
-        self.pc_info_ram_used.setText(f"Used Memory: {self.memory} MB")
+        for i in range(6):
+            for j in range(2):
+                widget = pc_info_layout.itemAtPosition(i, j).widget()
+                widget.setFont(font)
 
-        self.pc_info_ram_not_used.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 3, 400, 50)
-        self.pc_info_ram_not_used.setText(f"Available Memory: {self.memory} MB")
+        pc_info_group.setLayout(pc_info_layout)
+        main_layout.addWidget(pc_info_group)
 
-        self.pc_info_byte_send.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 4, 400, 50)
-        self.pc_info_byte_send.setText(f"Bytes Sent: {self.net_io}")
 
-        self.pc_info_byte_received.setGeometry(init_x_button, init_y_pc_info + y_pc_info_jump * 5, 400, 50)
-        self.pc_info_byte_received.setText(f"Bytes Received: {self.net_io}")
 
     def start_server(self):
         self.server_process.start()
@@ -346,11 +337,9 @@ class MainWindow(QMainWindow):
         clean_message = remove_ansi_codes(message)
 
         if self.server_process.player_text(clean_message):
-            # Nur in den Chat (rechter Bereich)
             self.player_chat.appendPlainText(clean_message)
             self.player_chat.viewport().update()
         else:
-            # Nur ins Log (linker Bereich)
             self.log_text.appendPlainText(clean_message)
             self.log_text.viewport().update()
 
@@ -377,12 +366,12 @@ class MainWindow(QMainWindow):
                 self.update_log_signal.emit(f"Error getting PC info: {e}")
 
     def update_pc_info_labels(self, info):
-        self.pc_info_cpu.setText(f"CPU Usage: {info['cpu_percent']}%")
-        self.pc_info_ram.setText(f"RAM Usage: {info['memory_percent']}%")
-        self.pc_info_ram_used.setText(f"Used Memory: {info['memory_used']} MB")
-        self.pc_info_ram_not_used.setText(f"Available Memory: {info['memory_available']} MB")
-        self.pc_info_byte_send.setText(f"Bytes Sent: {info['mb_sent']} MB")
-        self.pc_info_byte_received.setText(f"Bytes Received: {info['mb_recv']} MB")
+        self.pc_info_cpu.setText(f"{info['cpu_percent']}%")
+        self.pc_info_ram.setText(f"{info['memory_percent']}%")
+        self.pc_info_ram_used.setText(f"{info['memory_used']} MB")
+        self.pc_info_ram_not_used.setText(f"{info['memory_available']} MB")
+        self.pc_info_byte_send.setText(f"{info['mb_sent']} MB")
+        self.pc_info_byte_received.setText(f"{info['mb_recv']} MB")
 
     def send_command(self):
         cmd = self.command_input.text().strip()
