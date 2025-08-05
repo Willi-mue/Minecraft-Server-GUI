@@ -21,6 +21,5 @@ whitelist.json
 backups
 .temp
 __pycache__
-*.jar
 server.properties
 eula.txt
