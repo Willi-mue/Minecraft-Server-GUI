@@ -1,7 +1,11 @@
 # Minecraft Server GUI [Vanilla Minecraft]
 
-#### ToDo
+die server jar muss in den Server folder
+
+
+
+
+#### ideas
 
 - Make a Webpage out of it
-- Make it work with Docker
-- Write a Docker start Guide
+- Make it work with Docker after the webside
